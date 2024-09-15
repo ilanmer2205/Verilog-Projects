@@ -1,0 +1,15 @@
+`timescale 1ns / 1ps
+
+
+module d_ff(
+    input clk, 
+    input d_in,
+    output reg q
+    );
+    reg q_not;
+    always @(posedge clk) begin
+    q<=d_in;
+    q_not<=(!q);
+    end
+      
+endmodule
