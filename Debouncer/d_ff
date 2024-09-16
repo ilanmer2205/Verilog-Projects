@@ -9,7 +9,8 @@ module d_ff(
     reg q_not;
     always @(posedge clk) begin
     q<=d_in;
-    q_not<=(!q);
+    q_not<=!q;
+
     end
       
 endmodule
