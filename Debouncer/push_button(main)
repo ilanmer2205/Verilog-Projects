@@ -2,16 +2,16 @@
 
 
 module push_button(
-    input pb, clk,
+    input pb, clk_in,
     output led
     );
 
     wire q1, q2, q2_not;
-    wire slow_clk;
+    wire clk_out;
     
-    slow_clk s_c(clk ,slow_clk);
-    d_ff d1(slow_clk, pb, q1);
-    d_ff d2(slow_clk, q1, q2);
+    slow_clk s_c(clk_in ,clk_out);
+    d_ff d1(clk_out, pb, q1);
+    d_ff d2(clk_out, q1, q2);
     
     assign q2_not=~q2;
     assign led= q1 & q2_not;
