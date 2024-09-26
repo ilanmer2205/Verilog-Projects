@@ -1,0 +1,29 @@
+
+`timescale 1ns / 1ps
+
+module debouncer(
+    input clk,
+    input btn,
+    output q_out
+    );
+    parameter MAX_COUNT=1_000_000; 
+    //clock cycles needed for 10m second to pass (aproximatly) after button is presed:
+    // 10m / (1/clk_fpga)=1_000_000 
+    reg [20:0]count=0;
+    reg r_state;
+
+  always@(posedge clk) begin
+       if(btn!= r_state && count<MAX_COUNT) begin
+        count<=count+1;
+       end
+       else
+        if(count==MAX_COUNT) begin
+            r_state<=btn;
+            count<=0;
+        end
+        else
+            count<=0;
+    end
+    
+    assign q_out= r_state;
+endmodule
