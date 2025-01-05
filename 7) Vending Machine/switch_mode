@@ -1,0 +1,42 @@
+//gets all m_x and btn_x inputs and connects them to the output in the needed models
+module switch_mode(
+    input clk,  
+    input btn_mid, 
+    input i_btn_u, i_btn_l, i_btn_r, i_btn_d,
+    output reg m_1, m_5, m_10, m_20,
+    output reg i_rst, cancel_btn,
+    output reg [1:0]current_mode //led
+);
+    reg r_btn_mid=0;
+    
+    always@(posedge btn_mid) begin
+            r_btn_mid<=~r_btn_mid; 
+    end
+            
+    always@(posedge clk) begin        
+        if(r_btn_mid==0)
+            current_mode<=2'b01; //first led
+        else
+            current_mode<=2'b10; //second led    
+    end
+    
+    always@(i_btn_u, i_btn_d, i_btn_r, i_btn_l, r_btn_mid) begin
+        if(r_btn_mid==0) begin //enter money mode
+            m_1<=i_btn_l;
+            m_5<=i_btn_u;
+            m_10<=i_btn_r;
+            m_20<=i_btn_d;
+            cancel_btn<= 1'bz;
+            i_rst<=1'bz;
+        end    
+        else begin
+            m_1<=1'bz;
+            m_5<=1'bz;
+            m_10<=1'bz;
+            m_20<=1'bz;
+            cancel_btn<= i_btn_l;
+            i_rst<=i_btn_r;  
+        end     
+    end
+    
+endmodule
