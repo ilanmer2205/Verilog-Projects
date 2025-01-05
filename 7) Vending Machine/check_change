@@ -1,0 +1,167 @@
+module check_change(
+    input clk,i_rst, m_rst, //m_rst output of 'mode' model
+    input [4:0]payment_in, //output of 'money reciever' model
+    input [5:0]i_am_1, //total sum of money inside the machine. output of 'money reciever' model
+    input [5:0]i_am_5,
+    input [5:0]i_am_10,
+    output reg [5:0] o_am_1, //amount of coins inside the machine after giving change
+    output reg [5:0] o_am_5,
+    output reg [5:0] o_am_10,
+    output reg counter_ch_10, 
+    output reg [1:0]counter_ch_5, //max case 3 coins of 5 will be needed for change(for 10,5) 
+    output reg [4:0]counter_ch_1, //max case 19 coins of 1 will be needed for change (10+5+4) 
+    output enough_ch
+    );
+    parameter NO_NEED=3'b00, NEED_10=3'b01, NEED_5=3'b10, NEED_1=3'b11, WAIT=3'b100;
+    
+    reg [2:0] need;
+    reg r_change;
+    reg need_10, need_5; //indicates the initial kind of coins needed for change, wheter or not there's enough of said coin
+    reg [3:0] need_1;
+    reg [5:0] r_am_1;
+    reg [4:0] r_am_5;
+    reg [3:0] r_am_10;
+    reg [4:0] customer_m_left;
+    reg r_enough_ch;
+    reg change_1, change_5, change_10; //indicates if there's money in the machine to return the needed change
+    reg en_update=0; //ensure all the need_x cases are checked before continuing and updating the sum
+    reg en_m_left;
+    assign enough_ch= r_enough_ch;
+    
+    always@(posedge clk or posedge i_rst) begin //deducts cost of candy when there's enough money
+        if (i_rst || m_rst) begin
+            customer_m_left<=0;
+            en_m_left<=0; end
+        else if(payment_in>=7) begin
+                customer_m_left<= payment_in-7;
+                en_m_left<=1; end
+            else begin
+                customer_m_left<=0;
+                en_m_left<=0; end
+    end
+    
+    always@(posedge clk or posedge i_rst) begin  //check what kind of coins are needed for change
+        if(i_rst || m_rst) begin
+            need_10<=0;
+            need_5<=0;
+            need_1<=0; 
+        end
+        else begin       
+            if((customer_m_left%20>=10)) //counter ensures it only happens once
+                need_10<=1;
+            else
+                need_10<=0; 
+            if((customer_m_left%10>=5))
+                need_5<=1;
+            else
+                need_5<=0;
+            if((customer_m_left%5>=1)) 
+                need_1<=customer_m_left%5;
+            else
+                need_1<=0;   
+        end   
+    end          
+    
+    always@(posedge clk or posedge i_rst) begin
+        if (i_rst) begin //m_rst is in WAIT case
+            need<=NO_NEED;
+            change_1<=0;
+            change_5<=0;
+            change_10<=0; end 
+        else       
+        case(need)
+        NO_NEED: begin
+            r_am_1<=0;
+            r_am_5 <=0;
+            r_am_10<=0;
+            counter_ch_1<=0;
+            counter_ch_5<=0;
+            counter_ch_10<=0;
+            change_1<=0;
+            change_5<=0;
+            change_10<=0;
+            if (customer_m_left==0 && en_m_left) //if no change coins are needed
+                need<=WAIT;
+            if(need_10 || need_5 || need_1) //if a change of any kind of coin is needed
+                need<=NEED_10; //will start checking if change is enough/needed from need_10 and downwards
+        end
+        NEED_10: begin 
+            need<=NEED_5;
+            if(need_10) begin //if a change of 10 is needed-checking if there is enoough money in the machine
+                if(i_am_10) begin //if we have a coin of 10 in the machine 
+                    counter_ch_10<=1; //indicates how many coins of 10 is needed for change
+                    r_am_10<=i_am_10-1; //substruct 1 coin of ten from the total coins in the machine
+                    change_10<=1; end // indicates there's enough coins of (any kind!) in the machine to return a sum of 10
+                else if(i_am_5-need_5>=2) begin //if a 5 coin needed (for change of need_5) than after substraction, two coins of 5 will be needed to compliment the missing 10. so a total of 3 coins or more of 5 will pass the if condition. if need_5==0 then a total of 2 coings of 5 will be enough to compliment the missing 10
+                        counter_ch_5<=2;
+                        r_am_5<=i_am_5-2;
+                        change_10<=1; end
+                     else if(i_am_1-(need_5 && !i_am_1)*5 >=10) begin
+                        counter_ch_1<=10;
+                        r_am_1<=i_am_1-10;
+                        change_10<=1; end
+                            else
+                                change_10<=0;
+            end
+            else
+                change_10<=1;            
+        end                
+        NEED_5: begin     
+            need<=NEED_1;           
+            if(need_5) begin
+                if(i_am_5) begin
+                    counter_ch_5<=counter_ch_5+1;
+                    r_am_5<=i_am_5-1;
+                    change_5<=1;
+                end
+                else if(i_am_1>=5+ need_1) begin //if more than 5 or more than 5 + the needed 1 coins 
+                         counter_ch_1<=counter_ch_1+5;
+                         r_am_1<=i_am_1-5;
+                         change_5<=1; 
+                     end
+                     else
+                         change_5<=0;
+            end
+            else
+                change_5<=1;       
+        end    
+        NEED_1: begin
+            need<=WAIT;
+            if(need_1) begin
+                if(i_am_1>=need_1) begin
+                    counter_ch_1<=counter_ch_1+need_1;
+                    r_am_1<=i_am_1-need_1;
+                    change_1<=1;
+                end
+                else
+                    change_1<=0;
+            end
+            else
+                change_1<=1;         
+        end
+        WAIT: //wait to prevent entering a loop
+            if(m_rst)
+                need<=NO_NEED;
+        default: need<=NO_NEED;        
+        endcase 
+
+    end
+    
+    always@(posedge clk or posedge i_rst) begin
+        if(i_rst || m_rst) begin
+            r_enough_ch<=0; end
+        else                                       //if there's enough change, or no change is needed: update the money sum
+            if((change_10 && change_5 && change_1) || customer_m_left==0 && en_m_left) begin
+                o_am_10<=r_am_10;
+                o_am_5<=r_am_5;
+                o_am_1<=r_am_1;
+                r_enough_ch<=1;
+            end 
+            else //else keep sum 
+                o_am_10<=i_am_10;
+                o_am_5<=i_am_5;
+                o_am_1<=i_am_1;
+                r_enough_ch<=0;
+    end
+    
+endmodule
