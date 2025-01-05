@@ -1,0 +1,15 @@
+module return_money(
+    input m_1, m_5, m_10, m_20, //return excess money
+    input ch_give_1, //return change/cancel money. wired to give_1 in 'mode' model
+    input ch_give_5,
+    input ch_give_10, 
+    input enough_payment,
+    output o_give_1, o_give_5, o_give_10, o_give_20 //LED
+    );
+    
+    assign o_give_1= ch_give_1 ? ch_give_1 : enough_payment ? m_1 : 0;
+    assign o_give_5= ch_give_5 ? ch_give_5 : enough_payment ? m_5 : 0;
+    assign o_give_10= ch_give_10 ? ch_give_10 : enough_payment ? m_10 : 0;
+    assign o_give_20= enough_payment ? m_20 : 0;
+
+endmodule
