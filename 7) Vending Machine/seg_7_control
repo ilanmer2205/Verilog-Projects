@@ -1,0 +1,117 @@
+module seg_7_control(
+    input clk, i_rst, m_rst, //m_rst output of 'mode' model
+    input m_cancel, //output of mode
+    input [4:0]am_change, //output from 'mode'
+    input [4:0] payment_in, //represents cancel money. output of 'money reciever' model
+    input [3:0]vm_state, //vending machine state. output from 'mode' model
+    output reg [6:0] seg,
+    output reg [3:0] an
+    );
+    
+    parameter N= 7'b000_1001;
+    parameter E= 7'b011_0000;
+    parameter D= 7'b100_0010;
+    parameter B= 7'b110_0000;
+    parameter U= 7'b110_0011;
+    parameter Y= 7'b100_0100;
+    parameter C= 7'b011_0001;
+    parameter H= 7'b110_1000;
+    parameter LINE= 7'b111_1101; // '-'
+    parameter ZERO= 7'b000_0001,ONE=7'b100_1111 ,TWO=7'b100_1111 ,THREE=7'b000_0110 ,FOUR=7'b100_1100 ,FIVE=7'b010_0100 ,SIX= 7'b110_0000,SEVEN= 7'b000_1111,EIGHT= 7'b000_0000,NINE= 7'b000_1100;
+    parameter NULL= 7'b111_1111;
+    
+    parameter AN_1=4'b0111, AN_2=4'b0100, AN_3=4'b0010,AN_4=4'b0001;
+    parameter BUY=4'd0, WAIT= 4'd1, CH_10= 4'd2, CH_5= 4'd3, CH_1= 4'd4, CANCEL_10= 4'd5,
+               CANCEL_5= 4'd6, CANCEL_1= 4'd7, NO_CHANGE=4'd8;
+    
+    reg [16:0] an_counter;
+    reg [1:0] an_state;
+    reg [6:0]r_ch_counterM;
+    reg [6:0]r_ch_counterL;
+    wire [4:0] am_return; //amount of money needed to return(change/ cancel). 
+    
+    assign am_return= m_cancel ? payment_in : am_change; //determines if the return money is change or cancel 
+    
+    always@(posedge clk) begin
+        case(vm_state)
+            BUY: //idle state
+                case(an) 
+                    AN_1: seg=B;
+                    AN_2: seg=U;  
+                    AN_3: seg=Y;
+                    AN_4: seg=NULL;
+                endcase
+            WAIT: //after buying goes to wait state for a brief moment just to show transition
+                case(an) 
+                    AN_1: seg=LINE;
+                    AN_2: seg=LINE;  
+                    AN_3: seg=LINE;
+                    AN_4: seg=LINE;
+                endcase             
+            CH_10,CH_5,CH_1: //showing how much change is left to give
+                case(an) 
+                    AN_1: seg=C;
+                    AN_2: seg=H;  
+                    AN_3: seg=r_ch_counterM;
+                    AN_4: seg=r_ch_counterL;
+                endcase    
+            
+            CANCEL_10,CANCEL_5,CANCEL_1: //showing how much money is left in the machine while outputing the change
+                case(an) 
+                    AN_1: seg=C;
+                    AN_2: seg=H;  
+                    AN_3: seg=r_ch_counterM;
+                    AN_4: seg=r_ch_counterL;
+                endcase
+            
+            
+        endcase
+    end
+    
+    always@(posedge clk) begin
+        if(i_rst || m_rst) begin
+            r_ch_counterM<=0;
+            r_ch_counterL<=0; end
+        else begin    
+            case(am_return) 
+                5'd0 ||5'd10: r_ch_counterL=  7'b0000001;  
+                5'd1 ||5'd11: r_ch_counterL = 7'b1001111; 
+                5'd2 ||5'd12: r_ch_counterL = 7'b0010010; 
+                5'd3 ||5'd13: r_ch_counterL = 7'b0000110; 
+                5'd4 ||5'd14: r_ch_counterL = 7'b1001100;  
+                5'd5 ||5'd15: r_ch_counterL = 7'b0100100; 
+                5'd6 ||5'd16: r_ch_counterL = 7'b0100000;  
+                5'd7 ||5'd17: r_ch_counterL = 7'b0001111; 
+                5'd8 ||5'd18: r_ch_counterL = 7'b0000000;    
+                5'd9 ||5'd19: r_ch_counterL = 7'b0000100;
+                default: r_ch_counterL = 7'b0000001;
+            endcase     
+            if(am_return>=10)
+                r_ch_counterM<=7'b1001111; //'1'
+            else
+                r_ch_counterM<=7'b0000001; //when bellow change to '0'
+        end        
+    end
+    
+    always@(posedge clk) begin
+        if(i_rst || m_rst) begin
+            an_counter<=0;
+        end
+        else     
+            if(an_counter==99_999)begin
+                an_counter<=0;
+                an_state<=an_state+1;
+            end
+            else
+                an_counter<=an_counter+1;    
+    end
+    
+    always@(posedge clk) begin
+        case(an_state)
+            2'b00: an<=AN_1;
+            2'b01: an<=AN_2;
+            2'b10: an<=AN_3;
+            2'b11: an<=AN_4;
+        endcase    
+    end
+endmodule
