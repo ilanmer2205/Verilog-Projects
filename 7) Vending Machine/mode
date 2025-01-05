@@ -1,0 +1,154 @@
+module mode(
+    input clk, clk_1hz, clk_2hz, i_rst,
+    input enough_ch, enough_payment, cancel_btn,
+    input counter_ch_10, //how much coins of 10 is needed for change. output of 'check_change' model
+    input [1:0] counter_ch_5,
+    input [4:0] counter_ch_1,
+    input i_new_10, i_new_20, //new coins before full payment. output of 'money_reciever' model
+    input [1:0] i_new_5,
+    input [2:0] i_new_1,
+    output [3:0] o_vm_state, //transfer the mode to seg_7   
+    output [4:0]am_change, //max change is 26-7=19. when return change output will start from max change and decreese gradually. 
+    output reg m_cancel, //determines the next out of two states of wait 
+    output give_10, give_5,give_1, //LED imitating coin drops as change money is given to the customer
+    output m_rst, //reset when the deal is complete. propogates as reset throught the system.
+    output reg give_candy //led
+    );
+    
+    parameter BUY=4'd0, WAIT= 4'd1, CH_10= 4'd2, CH_5= 4'd3, CH_1= 4'd4, CANCEL_10= 4'd5,
+               CANCEL_5= 4'd6, CANCEL_1= 4'd7, CANCEL_20=4'd8;
+    reg r_rst;
+    reg [4:0]am_ch_1; //initialized to the same value as counter_ch_1 and than substrected each time when needed to give change
+    reg [1:0]am_ch_5;
+    reg am_ch_10,am_ch_20;
+    reg [2:0]am_new_1;
+    reg [1:0]am_new_5;
+    reg am_new_10;
+    reg am_new_20;
+    reg [3:0] mode=0;
+    reg [1:0] counter_3sec;
+    
+    assign m_rst= r_rst;
+    assign am_change= (am_ch_10*10+ am_ch_5*5+ am_ch_1);
+    assign give_10= (clk_2hz && mode==(CH_10 || CANCEL_10)); //blinks each 0.5sec and when giving 10 coins change 
+    assign give_5= (clk_2hz && mode==(CH_5 || CANCEL_5));
+    assign give_1= (clk_2hz && mode==(CH_1 || CANCEL_1));
+    assign o_vm_state=mode;
+    
+    always@(posedge clk) begin
+    if(i_rst) begin
+        mode<=BUY;
+        r_rst<=0;
+        m_cancel<=0;
+        am_ch_20<=0;
+        am_ch_10<=0;
+        am_ch_5<=0;
+        am_ch_1<=0;
+        am_new_20<=0;        
+        am_new_10<=0;
+        am_new_5<=0;
+        am_new_1<=0;
+    end
+    else    
+        case(mode)
+            BUY: begin //payment or cancel request can happen in this mode 
+                r_rst<=0;
+                am_new_20<=i_new_20;
+                am_new_10<=i_new_10;
+                am_new_5<=i_new_5;
+                am_new_1<=i_new_1;
+                
+                if(enough_payment) begin //procceed to start the purchase
+                    mode<=WAIT;
+                end
+                else if(cancel_btn) begin //procced to cancel
+                        mode<=WAIT;
+                        m_cancel<=1; end
+                    else begin //keep it low
+                        am_ch_10<=0;
+                        am_ch_5<=0;
+                        am_ch_1<=0; end    
+            end    
+            WAIT:
+                if(counter_3sec==3)begin //wait for 3 seconds 
+                    if(r_rst)
+                        mode<=BUY;            
+                        else 
+                        if(enough_payment) begin
+                                if(enough_ch) begin
+                                    am_ch_10<=counter_ch_10; //initialized to the same value as counter_ch_1 to be able to change it
+                                    am_ch_5<=counter_ch_5;
+                                    am_ch_1<=counter_ch_1;
+                                    mode<=CH_10; end //enough money&change-> procceed to return change 
+                                else
+                                    mode<=CANCEL_10; //not enough change->proceed to give money back
+                        end    
+                        else    
+                            if(m_cancel) begin
+                                mode<=CANCEL_10; 
+                            end       
+                end                 
+            CH_10: begin
+                give_candy<=1;             
+                if(clk_2hz==1) //wait for half a sec
+                    if(am_ch_10 !=0) begin 
+                        am_ch_10<=am_ch_10-1; end //return 10 coin change each half of a sec  
+                    else
+                        mode<=CH_5; //when all the change of 10 coins is given, give the next needed coin change   
+            end            
+            CH_5: begin  
+                if(clk_2hz==1)
+                    if(am_ch_5 !=0) begin 
+                        am_ch_5<=am_ch_5-1; end
+                    else
+                        mode<=CH_1;
+            end            
+            CH_1: begin
+                give_candy<=0;
+                if(clk_2hz==1)
+                    if(am_ch_1 !=0) begin 
+                        am_ch_1<=am_ch_1-1; end
+                    else begin
+                        mode<=WAIT;
+                        r_rst<=1; end
+            end
+            CANCEL_20:
+                if(clk_2hz==1)
+                    if(am_new_20 !=0) begin 
+                        am_new_20<=am_new_20-1; end
+                    else
+                        mode<=CANCEL_10;            
+            CANCEL_10:
+                if(clk_2hz==1)
+                    if(am_new_10 !=0) begin 
+                        am_new_10<=am_new_10-1; end
+                    else
+                        mode<=CANCEL_5;
+            CANCEL_5:
+                if(clk_2hz==1)
+                    if(am_new_5 !=0) begin 
+                        am_new_5<=am_new_5-1; end
+                    else
+                        mode<=CANCEL_1;
+            CANCEL_1:
+                if(clk_2hz==1)
+                    if(am_new_1 !=0) begin 
+                        am_new_1<=am_new_1-1; end
+                    else begin
+                        m_cancel<=0; 
+                        r_rst<=1;
+                        mode<=WAIT; end
+            default: mode<=BUY;            
+        endcase
+    end
+    
+    always@ (posedge clk_1hz or posedge i_rst ) begin
+        if(i_rst) //no need to use r_rst, because it resets automatically in line 130.
+            counter_3sec<=0;
+        else if (mode== WAIT)    
+                if(counter_3sec==3)
+                    counter_3sec<=0;
+                else
+                    counter_3sec<=counter_3sec+1;
+    end
+endmodule
