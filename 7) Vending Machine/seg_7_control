@@ -1,10 +1,10 @@
 module seg_7_control(
     input clk, i_rst, m_rst, //m_rst output of 'mode' model
-    input m_cancel, //output of mode
-    input [4:0]am_change, //output from 'mode'
-    input [4:0] payment_in, //represents cancel money. output of 'money reciever' model
+    input [4:0]am_return, //output from 'mode'
     input [3:0]vm_state, //vending machine state. output from 'mode' model
-    output reg [6:0] seg,
+    input [2:0] current_mode,
+    input [6:0] tot_am, //output of 'store_money' module
+    output reg [0:6] seg,
     output reg [3:0] an
     );
     
@@ -16,23 +16,23 @@ module seg_7_control(
     parameter Y= 7'b100_0100;
     parameter C= 7'b011_0001;
     parameter H= 7'b110_1000;
-    parameter LINE= 7'b111_1101; // '-'
+    parameter LINE= 7'b111_1110; // '-'
     parameter ZERO= 7'b000_0001,ONE=7'b100_1111 ,TWO=7'b100_1111 ,THREE=7'b000_0110 ,FOUR=7'b100_1100 ,FIVE=7'b010_0100 ,SIX= 7'b110_0000,SEVEN= 7'b000_1111,EIGHT= 7'b000_0000,NINE= 7'b000_1100;
     parameter NULL= 7'b111_1111;
     
-    parameter AN_1=4'b0111, AN_2=4'b0100, AN_3=4'b0010,AN_4=4'b0001;
+    parameter AN_1=4'b0111, AN_2=4'b1011, AN_3=4'b1101,AN_4=4'b1110;
     parameter BUY=4'd0, WAIT= 4'd1, CH_10= 4'd2, CH_5= 4'd3, CH_1= 4'd4, CANCEL_10= 4'd5,
-               CANCEL_5= 4'd6, CANCEL_1= 4'd7, NO_CHANGE=4'd8;
+               CANCEL_5= 4'd6, CANCEL_1= 4'd7, CANCEL_20=4'd8, PAYMENT=4'd9;
     
     reg [16:0] an_counter;
     reg [1:0] an_state;
-    reg [6:0]r_ch_counterM;
-    reg [6:0]r_ch_counterL;
-    wire [4:0] am_return; //amount of money needed to return(change/ cancel). 
-    
-    assign am_return= m_cancel ? payment_in : am_change; //determines if the return money is change or cancel 
+    reg [6:0]r_ch_counterM, r_ch_counterL, seg_num0, seg_num1, seg_num2;
+    reg [3:0] am_num0, am_num1;
+    reg am_num2;
+    reg [3:0] ch_num0,ch_num1;
     
     always@(posedge clk) begin
+        if(current_mode !=3'b100) 
         case(vm_state)
             BUY: //idle state
                 case(an) 
@@ -40,7 +40,14 @@ module seg_7_control(
                     AN_2: seg=U;  
                     AN_3: seg=Y;
                     AN_4: seg=NULL;
-                endcase
+                endcase  
+            PAYMENT: 
+                case(an) 
+                    AN_1: seg=B;
+                    AN_2: seg=U;  
+                    AN_3: seg=Y;
+                    AN_4: seg=NULL;
+                endcase     
             WAIT: //after buying goes to wait state for a brief moment just to show transition
                 case(an) 
                     AN_1: seg=LINE;
@@ -56,45 +63,126 @@ module seg_7_control(
                     AN_4: seg=r_ch_counterL;
                 endcase    
             
-            CANCEL_10,CANCEL_5,CANCEL_1: //showing how much money is left in the machine while outputing the change
+            CANCEL_20,CANCEL_10,CANCEL_5,CANCEL_1: //showing how much money is left in the machine while outputing the change
                 case(an) 
                     AN_1: seg=C;
                     AN_2: seg=H;  
                     AN_3: seg=r_ch_counterM;
                     AN_4: seg=r_ch_counterL;
                 endcase
-            
-            
+            default: 
+                case(an) 
+                    AN_1: seg=NULL;
+                    AN_2: seg=ZERO;  
+                    AN_3: seg=NULL;
+                    AN_4: seg=ZERO;
+                endcase  
+        endcase
+        else  if(current_mode == 3'b100)
+                case(an) 
+                    AN_1: seg= NULL;
+                    AN_2: seg= seg_num2;
+                    AN_3: seg= seg_num1;
+                    AN_4: seg= seg_num0;
+                endcase
+    end
+    always@(posedge clk) begin //convert binary to decimal of total amount of money in the machine
+        am_num0= tot_am%10;
+        am_num1= tot_am/10;
+        am_num2= tot_am/100;
+    end
+    
+    always@(posedge clk) begin
+        case(am_num0)
+            5'd0: seg_num0=  7'b0000001;   //0
+            5'd1: seg_num0 = 7'b1001111;   //1
+            5'd2: seg_num0 = 7'b0010010;   //2..
+            5'd3: seg_num0 = 7'b0000110;   
+            5'd4: seg_num0 = 7'b1001100;  
+            5'd5: seg_num0 = 7'b0100100; 
+            5'd6: seg_num0 = 7'b0100000;  
+            5'd7: seg_num0 = 7'b0001111; 
+            5'd8: seg_num0 = 7'b0000000;    
+            5'd9: seg_num0 = 7'b0000100;   // ..9
+            default: seg_num0 = 7'b1100010;
+        endcase
+        
+        case(am_num1)
+            5'd0: seg_num1=  7'b0000001;   //0
+            5'd1: seg_num1 = 7'b1001111;   //1
+            5'd2: seg_num1 = 7'b0010010;   //2..
+            5'd3: seg_num1 = 7'b0000110;   
+            5'd4: seg_num1 = 7'b1001100;  
+            5'd5: seg_num1 = 7'b0100100; 
+            5'd6: seg_num1 = 7'b0100000;  
+            5'd7: seg_num1 = 7'b0001111; 
+            5'd8: seg_num1 = 7'b0000000;    
+            5'd9: seg_num1 = 7'b0000100;   // ..9
+            default: seg_num1 = 7'b1100010;
+        endcase
+        
+        case(am_num2)
+            5'd0: seg_num2=  7'b0000001;   //0
+            5'd1: seg_num2 = 7'b1001111;   //1
         endcase
     end
     
-    always@(posedge clk) begin
-        if(i_rst || m_rst) begin
-            r_ch_counterM<=0;
-            r_ch_counterL<=0; end
-        else begin    
-            case(am_return) 
-                5'd0 ||5'd10: r_ch_counterL=  7'b0000001;  
-                5'd1 ||5'd11: r_ch_counterL = 7'b1001111; 
-                5'd2 ||5'd12: r_ch_counterL = 7'b0010010; 
-                5'd3 ||5'd13: r_ch_counterL = 7'b0000110; 
-                5'd4 ||5'd14: r_ch_counterL = 7'b1001100;  
-                5'd5 ||5'd15: r_ch_counterL = 7'b0100100; 
-                5'd6 ||5'd16: r_ch_counterL = 7'b0100000;  
-                5'd7 ||5'd17: r_ch_counterL = 7'b0001111; 
-                5'd8 ||5'd18: r_ch_counterL = 7'b0000000;    
-                5'd9 ||5'd19: r_ch_counterL = 7'b0000100;
-                default: r_ch_counterL = 7'b0000001;
-            endcase     
-            if(am_return>=10)
-                r_ch_counterM<=7'b1001111; //'1'
-            else
-                r_ch_counterM<=7'b0000001; //when bellow change to '0'
-        end        
+    always@(posedge clk) begin //convert binary to decimal of total amount of money in the machine
+        ch_num0= am_return%10;
+        ch_num1= am_return/10;
     end
     
     always@(posedge clk) begin
-        if(i_rst || m_rst) begin
+        case(ch_num0)
+            5'd0: r_ch_counterL=  7'b0000001;   //0
+            5'd1: r_ch_counterL = 7'b1001111;   //1
+            5'd2: r_ch_counterL = 7'b0010010;   //2..
+            5'd3: r_ch_counterL = 7'b0000110;   
+            5'd4: r_ch_counterL = 7'b1001100;  
+            5'd5: r_ch_counterL = 7'b0100100; 
+            5'd6: r_ch_counterL = 7'b0100000;  
+            5'd7: r_ch_counterL = 7'b0001111; 
+            5'd8: r_ch_counterL = 7'b0000000;    
+            5'd9: r_ch_counterL = 7'b0000100;   // ..9
+            default: r_ch_counterL = 7'b1100010; //small zero
+        endcase
+        
+        case(ch_num1)
+            5'd0: r_ch_counterM=  7'b0000001;   //0
+            5'd1: r_ch_counterM = 7'b1001111;   //1
+            5'd2: r_ch_counterM = 7'b0010010;   //2..
+            5'd3: r_ch_counterM = 7'b0000110;   
+            5'd4: r_ch_counterM = 7'b1001100;  
+            5'd5: r_ch_counterM = 7'b0100100; 
+            5'd6: r_ch_counterM = 7'b0100000;  
+            5'd7: r_ch_counterM = 7'b0001111; 
+            5'd8: r_ch_counterM = 7'b0000000;    
+            5'd9: r_ch_counterM = 7'b0000100;   // ..9
+            default: r_ch_counterM = 7'b1100010;
+        endcase
+    end    
+//    always@(posedge clk) begin    
+//            case(am_return)  //LSB
+//                5'd0,5'd10: r_ch_counterL=  7'b0000001;   //0
+//                5'd1 ||5'd11: r_ch_counterL = 7'b1001111;   //1
+//                5'd2 ||5'd12: r_ch_counterL = 7'b0010010;   //2..
+//                5'd3 ||5'd13: r_ch_counterL = 7'b0000110;   
+//                5'd4 ||5'd14: r_ch_counterL = 7'b1001100;  
+//                5'd5 ||5'd15: r_ch_counterL = 7'b0100100; 
+//                5'd6 ||5'd16: r_ch_counterL = 7'b0100000;  
+//                5'd7 ||5'd17: r_ch_counterL = 7'b0001111; 
+//                5'd8 ||5'd18: r_ch_counterL = 7'b0000000;    
+//                5'd9 ||5'd19: r_ch_counterL = 7'b0000100;   // ..9
+//                default: r_ch_counterL = LINE;
+//            endcase     
+//            if(am_return>=10) //MSB
+//                r_ch_counterM<=7'b1001111; //'1'
+//            else
+//                r_ch_counterM<=7'b0000001; //when bellow change to '0'
+//        end        
+    
+    always@(posedge clk) begin
+        if(i_rst) begin
             an_counter<=0;
         end
         else     
