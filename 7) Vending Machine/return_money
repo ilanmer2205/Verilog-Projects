@@ -1,15 +1,20 @@
 module return_money(
     input m_1, m_5, m_10, m_20, //return excess money
-    input ch_give_1, //return change/cancel money. wired to give_1 in 'mode' model
-    input ch_give_5,
-    input ch_give_10, 
-    input enough_payment,
-    output o_give_1, o_give_5, o_give_10, o_give_20 //LED
+    input m_give_1, //return change/cancel money. wired to give_1 in 'mode' model
+    input m_give_5,
+    input m_give_10,
+    input m_give_20, 
+    input en_m_back, i_cancel, //output of 'money_reciever' module.
+    input enough_payment, //output of 'payment_reciever' module.
+    output o_give_1, o_give_5, o_give_10, o_give_20, //LED
+    output o_give_back //LED
     );
     
-    assign o_give_1= ch_give_1 ? ch_give_1 : enough_payment ? m_1 : 0;
-    assign o_give_5= ch_give_5 ? ch_give_5 : enough_payment ? m_5 : 0;
-    assign o_give_10= ch_give_10 ? ch_give_10 : enough_payment ? m_10 : 0;
-    assign o_give_20= enough_payment ? m_20 : 0;
+    assign o_give_1= m_give_1;
+    assign o_give_5= m_give_5;
+    assign o_give_10= m_give_10;
+    assign o_give_20= m_give_20;
+
+    assign o_give_back= (enough_payment || en_m_back || i_cancel) ? (m_1 || m_5 || m_10 || m_20) : 0; //LED signaling the return of new inserted coins if they are recieved after full payment is in place, or if two coins inserted at the same time, or if canceled. shows that no money is swallowed.
 
 endmodule
