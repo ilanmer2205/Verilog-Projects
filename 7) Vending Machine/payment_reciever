@@ -1,0 +1,43 @@
+module payment_reciever(
+    input clk, m_rst, i_rst, m_1,m_5,m_10,m_20,
+    output reg enough_payment,
+    output  [4:0] payment_in,
+    output reg [2:0] o_new_1,  //new coins inserted. input of 'mode' and 'store_money' modules
+    output reg [1:0] o_new_5,
+    output reg o_new_10, o_new_20
+    );
+    reg [4:0] r_payment_in=0;
+    assign payment_in=r_payment_in;
+    
+    always@(posedge clk or posedge i_rst or posedge m_rst) begin
+        if(m_rst || i_rst) begin
+            r_payment_in<=0;
+            enough_payment<=0;
+        end
+        else if (payment_in<=6) begin //after 6 coins can recieve a last coin of any kind and that's it
+                r_payment_in<=r_payment_in+ m_1+ m_5*5 //update the sum
+                             +m_10*10+ m_20*20;
+                enough_payment<=0; end
+             else if (payment_in>7)
+                enough_payment<=1;
+    end
+    
+    always@(posedge clk) begin //remembers new coins in case a cancel is needed
+        if(i_rst || m_rst) begin 
+            o_new_1<=0;
+            o_new_5<=0;
+            o_new_10<=0;
+            o_new_20<=0;
+        end
+        else if (payment_in<=6) begin
+            o_new_1<=o_new_1 +m_1;
+            o_new_5<=o_new_5 +m_5;
+            o_new_10<=o_new_10 +m_10;
+            o_new_20<=o_new_20 +m_20;
+
+        end     
+    end
+
+     
+endmodule
+
