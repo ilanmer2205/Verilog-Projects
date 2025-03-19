@@ -1,0 +1,16 @@
+module debouncer(
+    input clk,
+    input i_btn,
+    output o_btn
+    );
+    
+    reg r_1, r_2, r_3;
+    always@(posedge clk) begin
+        r_1<=i_btn;
+        r_2<=r_1;
+        r_3<=r_2;
+    end
+    
+    assign o_btn=r_3;
+    
+endmodule
