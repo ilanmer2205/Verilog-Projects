@@ -50,11 +50,6 @@ module money_reciever( //recieve and save money in the machine
                             r_wait<=0; end
                             else if( (m_1 ^ m_5 ^ m_10 ^ m_20) && enough_payment==1) begin //cover the option when payment is enough to avoid letting money back
                                 en_m_back<=1'b0; end
-//                                en_m_1<=0; // not the case now but i leave this comment(else-for the slim chance a coin will be inserted and then two coins at once)
-//                                en_m_5<=0;
-//                                en_m_10<=0;
-//                                en_m_20<=0; end
-                                  else //if two at the same time
                                       en_m_back<=1'b1;
                                 
             end
