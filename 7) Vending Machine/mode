@@ -1,240 +1,351 @@
-module mode #(parameter COUNTER_1SEC=49_999_999)( 
+module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
+              parameter COUNT_RESET= 999_999_999*5,
+              parameter COIN_DELAY= 999_999_999)
+   ( 
     input clk, i_rst,
     input enough_ch, enough_payment, cancel_btn, 
+    input [4:0]counter_ch_10, counter_ch_20, counter_ch_5, counter_ch_1, //how much coins of 10 is needed for change. output of 'check_change' model
+    input [4:0] i_new_10, i_new_20,  i_new_5, i_new_1, //new coins inserted. output of 'payment_reciever' model
     
-    input counter_ch_10, //how much coins of 10 is needed for change. output of 'check_change' model
-    input [1:0] counter_ch_5,
-    input [4:0] counter_ch_1,
+    input [5:0] i_am_1, i_am_5, i_am_10, i_am_20, 
+    input [1:0] sel_product, //input
+    input no_payment, //output of 'payment_reciever'
+    input no_ch, //output of 'check_change'
     
-    input i_new_10, i_new_20, //new coins inserted. output of 'payment_reciever' model
-    input [1:0] i_new_5,
-    input [2:0] i_new_1,
+    output reg [4:0] change_left_1 ,change_left_5,change_left_10,change_left_20, //input of LCD? if not needed as reg
+    output reg en_payment, //input of payment_reciever.v
+    output reg en_check_ch, //input of check_change.v
+    output reg servo_20, servo_10, servo_5, servo_1,
+    output reg  en_money_after_ch20, en_money_after_ch10, en_money_after_ch5, en_money_after_ch1, //input of 'store_money' module. updates money after change is given
+    output reg [4:0] new_left_20, new_left_10, new_left_5, new_left_1,
+    output reg en_add_new, //input of 'store_money' module. en to add new_x to total am of money in the machine 
     
-    input [5:0] i_am_1, 
-    input [5:0] i_am_5,  
-    input [5:0] i_am_10, 
-    input [2:0] i_am_20, 
-    output [5:0] o_am_1, 
-    output [5:0] o_am_5, 
-    output [5:0] o_am_10,
-    output [2:0] o_am_20, 
-    
-    output [3:0] o_vm_state, //transfer the mode to seg_7   
-    output [4:0]am_return,   //sum of the returned money needed. change or cancel.   
-                             //max change is 26-7=19. when return, change output will start from max change and decrese gradually. 
-    output reg m_cancel, //determines the next out of two states of wait 
+    output [4:0] o_vm_state, //transfer the mode to seg_7   
+                             
     output give_20, give_10, give_5,give_1, //LED imitating coin drops as change money is given to the customer
-    output m_rst, //reset when the deal is complete. propogates as reset throught the system.
-    output reg give_candy //led
+    output reg m_rst, //reset when the deal is complete. propogates as reset throught the system.
+    output reg block_money, //blocks money from entering the system after full payment has been made
+    output reg en_candy
     );
     
-    parameter BUY=4'd0, WAIT= 4'd1, CH_10= 4'd2, CH_5= 4'd3, CH_1= 4'd4, CANCEL_10= 4'd5,
-               CANCEL_5= 4'd6, CANCEL_1= 4'd7, CANCEL_20=4'd8, PAYMENT=4'd9;
-               
-    reg r_rst;
-    reg [5:0] r_am_10,r_am_5,r_am_1;
-    reg [2:0] r_am_20;
-    reg [4:0]am_ch_1; //initialized to the same value as counter_ch_1 and than substrected each time when needed to give change
-    reg [1:0]am_ch_5;
-    reg am_ch_10,am_ch_20;
-    reg [2:0]am_new_1;
-    reg [1:0]am_new_5;
-    reg am_new_10;
-    reg am_new_20;
-    reg [3:0] mode=0;
-    reg [2:0] counter_3sec;
-    reg half_sec;
-    reg [25:0] counter_1sec;
-    reg clk_1hz;
-    reg r_give_1,r_give_5,r_give_10, r_give_20;
+        
+//    parameter IDLE=5'd0, BUY= 5'd1, CH_10= 5'd2, CH_5= 5'd3, CH_1= 5'd4, CANCEL_10= 5'd5,
+//               CANCEL_5= 5'd6, CANCEL_1= 5'd7, CANCEL_20=5'd8, PAYMENT=5'd9,  
+//               WAIT_PAYMENT=5'd11, WAIT_CHECK_CHANGE=5'd12, CHECK_CHANGE=5'd13, CH_20=5'd14, WAIT_COIN=5'd15,
+//               WAIT_CANCEL=5'd16, UPDATE_MONEY_PAYMENT=5'd17, UPDATE_RETURN_CH=5'd18;
+
+    parameter IDLE=5'd0, BUY= 5'd1, PAYMENT= 5'd2, WAIT_PAYMENT= 5'd3, UPDATE_MONEY_PAYMENT= 5'd4, CHECK_CHANGE= 5'd5,
+               WAIT_CHECK_CHANGE= 5'd6, CH_20= 5'd7, CH_10=5'd8, CH_5=5'd9, CH_1=5'd10, 
+               WAIT_COIN=5'd11, UPDATE_RETURN_CH=5'd12, CANCEL_20=5'd13, CANCEL_10=5'd14, CANCEL_5=5'd15,
+               CANCEL_1=5'd16, WAIT_CANCEL=5'd17;
     
+    reg [4:0] mode=0, next_mode=0;
+    reg [20:0]cnt_wait=0, cnt_reset=0, cnt_coin=0; 
+    reg flag_wait=0, flag_reset=0, flag_coin=0;
     
-    assign o_am_20=r_am_20;
-    assign o_am_10=r_am_10;
-    assign o_am_5=r_am_5;
-    assign o_am_1=r_am_1;
-    
-    assign m_rst= r_rst;
-    assign am_return= enough_ch ? (am_ch_10*10+ am_ch_5*5+ am_ch_1):
-                             (am_new_20*20 +am_new_10*10+ am_new_5*5+ am_new_1); //determines the diplayed return coins (cancel/change)
-    
-    assign give_10= r_give_10; //display on the LED the coins are returned (change or cancel).
-    assign give_5= r_give_5; //r_give_10 && clk_1hz==1 is added to show the coin is out (to change the LED blink from 10ns to 0.5s).
-    assign give_1= r_give_1; 
-    assign give_20= r_give_20;
-    assign o_vm_state=mode;
+    assign o_vm_state= mode;
     
     always@(posedge clk) begin
-    if(i_rst) begin
-        mode<=BUY;
-        r_rst<=0;
-        m_cancel<=0;
-        am_ch_20<=0;
-        am_ch_10<=0;
-        am_ch_5<=0;
-        am_ch_1<=0;
-        am_new_20<=0;        
-        am_new_10<=0;
-        am_new_5<=0;
-        am_new_1<=0;
+        if (i_rst || m_rst) begin
+            cnt_wait<=0;
+            cnt_reset<=0;
+            cnt_coin<=0;
+        end
+        else begin
+            cnt_wait<=0;
+            cnt_reset<=0;
+            cnt_coin<=0;
+            if(flag_wait)
+                cnt_wait<=cnt_wait+1;
+            if(flag_reset)
+                cnt_reset<=cnt_reset+1;
+            if(flag_coin)
+                cnt_coin<=cnt_coin+1; 
+        end        
     end
-    else    
+    
+    
+    always@(posedge clk) begin
+        if (i_rst)
+        mode<=IDLE;
+    else
+        mode<=next_mode;  
+    end
+    
+    always@* begin
         case(mode)
-            BUY: begin //idle state, while not enough payment. payment or cancel requests happen in this mode 
-                r_rst<=0;
-                
-                r_am_1<=i_am_1;
-                r_am_5<=i_am_5;
-                r_am_10<=i_am_10;
-                r_am_20<=i_am_20;
-                
-                am_new_20<=i_new_20; 
-                am_new_10<=i_new_10;
-                am_new_5<=i_new_5;
-                am_new_1<=i_new_1; 
-                
-//                am_ch_10<=counter_ch_10;  //initialized to the same value as counter_ch_10 to be able to change it
-//                am_ch_5<=counter_ch_5;
-//                am_ch_1<=counter_ch_1; 
-                
-                if(enough_payment) begin //procceed to start the purchase
-                    mode<=PAYMENT;
-                end
-                else if(cancel_btn) begin //procced to cancel
-                        mode<=PAYMENT;
-                        m_cancel<=1; end
-//                    else begin //keep it low
-//                        am_ch_10<=0;
-//                        am_ch_5<=0;
-//                        am_ch_1<=0; end    
-            end   
-            PAYMENT: begin
-                r_am_1<=o_am_1+i_new_1;//////////(2)o->r        
-                r_am_5<=o_am_5+i_new_5;        
-                r_am_10<=o_am_10+i_new_10;     
-                r_am_20<=o_am_20+i_new_20;
-                
-                mode<=WAIT;
+            IDLE://0
+                if(i_rst) next_mode=IDLE;
+                else next_mode=BUY;
+            BUY://1
+                if(en_payment==1) next_mode= PAYMENT;
+                else next_mode=BUY;
+            PAYMENT://2 
+                if(enough_payment) next_mode= WAIT_PAYMENT;
+                else if(cancel_btn==1) next_mode=WAIT_CANCEL;
+                else if(no_payment==1 && cnt_reset== COUNT_RESET) next_mode=IDLE; //if no payment has been made for a long time it resets automatically.
+                else next_mode= PAYMENT; 
+            WAIT_PAYMENT: //wait to register all coins. even those who entered after full payment was made
+                if(cnt_wait==COUNT_WAIT) next_mode= CHECK_CHANGE; //UPDATE_MONEY_PAYMENT
+                else next_mode=WAIT_PAYMENT;
+//            UPDATE_MONEY_PAYMENT: //add new coins to the total sum. happens for one clock because of addition.
+//                next_mode= CHECK_CHANGE;
+            CHECK_CHANGE: //5  
+                if(enough_ch) next_mode=WAIT_COIN; //WAIT_CHECK_CHANGE
+                else if(no_ch) next_mode=WAIT_CANCEL; //if machine doesnt have enough change it return the money
+                else next_mode= CHECK_CHANGE;
+//            WAIT_CHECK_CHANGE:  //en_candy<=1 and wait for changes to update through the machine
+//                if(cnt_wait==COUNT_WAIT) next_mode= WAIT_COIN;
+//                else next_mode=WAIT_CHECK_CHANGE;   
+            SEG_REG: begin
+                if(cancel_btn==1 || no_ch==1) next_mode=WAIT_CANCEL;
+                else if(enough_ch) next_mode=WAIT_COIN; //WAIT_CHECK_CHANGE
+                else next_mode= SEG_REG;
             end
-             
-            WAIT: begin
-                if(counter_3sec==3)begin //wait for 3 seconds 
-                    if(r_rst)
-                        mode<=BUY;            
-                        else 
-                            if(enough_payment) begin
-                                    if(enough_ch) begin
-                                        am_ch_10<=counter_ch_10;  //initialized to the same value as counter_ch_10 to be able to change it
-                                        am_ch_5<=counter_ch_5;
-                                        am_ch_1<=counter_ch_1;
-                                        
-                                        mode<=CH_10; end //enough money&change-> procceed to return change 
-                                    else
-                                        mode<=CANCEL_20; //not enough change->proceed to give money back
-                            end    
-                            else    
-                                if(m_cancel) begin
-                                    mode<=CANCEL_20; 
-                                end       
-                end
-            end                     
-            CH_10: begin
-                give_candy<=1;             
-                if(half_sec==1) //every half a sec check if a 10 coin change is needed
-                    if(am_ch_10 !=0) begin //if it is
-                        am_ch_10<=am_ch_10-1; //return the 10 coin   
-                        r_am_10<=r_am_10-1; //updates sum of money in the machine
-                        r_give_10<=1; end //enables LED blink symobolizing the coin return
-                    else begin
-                        mode<=CH_5; //otherwise, when all the change of 10 coins is given, give the next needed coin change   
-                        r_give_10<=0; end    
-                             
-            end            
-            CH_5: begin  
-                if(half_sec==1)
-                    if(am_ch_5 !=0) begin 
-                        am_ch_5<=am_ch_5-1;
-                        r_am_5<=r_am_5-1;
-                        r_give_5<=1;  end
-                    else begin
-                        mode<=CH_1;
-                        r_give_5<=0; end
-            end            
-            CH_1: begin
-                give_candy<=0;
-                if(half_sec==1)
-                    if(am_ch_1 !=0) begin 
-                        am_ch_1<=am_ch_1-1;
-                        r_am_1<=r_am_1-1;
-                        r_give_1<=1; end
-                    else begin
-                        mode<=WAIT;
-                        r_rst<=1; 
-                        r_give_1<=0; end
-            end
+            CH_20: //in this state for one clk, so substruction happens only once
+                next_mode= WAIT_COIN; //after each substruction wait a set amount of time and than resume
+            CH_10: 
+                next_mode= WAIT_COIN; 
+            CH_5:
+                next_mode= WAIT_COIN;
+            CH_1:   
+                next_mode= WAIT_COIN;
+            WAIT_COIN: 
+                if(cnt_coin==COIN_DELAY)    
+                    if(change_left_20 != 0) next_mode=CH_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
+                    else if(change_left_10 != 0) next_mode=CH_10;
+                    else if(change_left_5 != 0) next_mode=CH_5;
+                    else if(change_left_1 != 0) next_mode=CH_1;
+                    else next_mode= IDLE; //used to be UPDATE_RETURN_CH
+                else next_mode= WAIT_COIN;
+//            UPDATE_RETURN_CH:  //12
+//                if(cnt_wait==COUNT_WAIT) next_mode= IDLE;
+//                else next_mode=UPDATE_RETURN_CH;
+            WAIT_CANCEL: //17
+                if(cnt_coin==COIN_DELAY)    
+                    if(new_left_20 != 0) next_mode=CANCEL_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
+                    else if(new_left_10 != 0) next_mode=CANCEL_10;
+                    else if(new_left_5 != 0) next_mode=CANCEL_5;
+                    else if(new_left_1 != 0) next_mode=CANCEL_1;
+                    else next_mode= IDLE; //used to be UPDATE_RETURN_CH
+                else next_mode= WAIT_CANCEL;            
+//                if(cnt_wait==COUNT_WAIT) next_mode= CANCEL_20;
+//                else next_mode=WAIT_CANCEL;    
             CANCEL_20:
-                if(half_sec==1)
-                    if(am_new_20 !=0) begin 
-                        am_new_20<=am_new_20-1;
-                        r_am_20<=r_am_20-1;
-                        r_give_20<=1; end
-                    else begin
-                        mode<=CANCEL_10;
-                        r_give_20<=0; end            
+                next_mode= WAIT_CANCEL;
             CANCEL_10:
-                if(half_sec==1)
-                    if(am_new_10 !=0) begin 
-                        am_new_10<=am_new_10-1;
-                        r_am_10<=r_am_10-1;
-                        r_give_10<=1; end
-                    else begin
-                        mode<=CANCEL_5;
-                        r_give_10<=0; end
+                next_mode= WAIT_CANCEL;
             CANCEL_5:
-                if(half_sec==1)
-                    if(am_new_5 !=0) begin 
-                        am_new_5<=am_new_5-1;
-                        r_am_5<=r_am_5-1;
-                        r_give_5<=1; end
-                    else begin
-                        mode<=CANCEL_1;
-                        r_give_5<=0; end
-            CANCEL_1:
-                if(half_sec==1)
-                    if(am_new_1 !=0) begin 
-                        am_new_1<=am_new_1-1;
-                        r_am_1<=r_am_1-1;
-                        r_give_1<=1; end
-                    else begin
-                        m_cancel<=0; 
-                        r_rst<=1;
-                        mode<=WAIT;
-                        r_give_1<=0; end
-            default: mode<=BUY;            
+                next_mode= WAIT_CANCEL;
+            CANCEL_1:  
+                next_mode= WAIT_CANCEL;              
+            default: next_mode= IDLE;       
         endcase
     end
     
-    always@ (posedge clk or posedge i_rst ) begin
-        if(i_rst) //no need to use r_rst, because it resets automatically in line 130.
-            counter_3sec<=0;
-        else if(counter_3sec==3)
-            counter_3sec<=0;
-            else if (mode== WAIT && half_sec) //half_sec is like posedge    
-                    counter_3sec<=counter_3sec+1;
+    always@(posedge clk) begin
+        case(mode)
+            IDLE: begin
+                m_rst<=1;
+                flag_reset<=0;
+                flag_wait<=0;
+                flag_coin<=0;
+                block_money<=0;
+                
+                change_left_20<=0;
+                change_left_10<=0;
+                change_left_5<= 0;
+                change_left_1<= 0;
+                
+                new_left_20<=0;
+                new_left_10 <=0;
+                new_left_5<= 0;
+                new_left_1<=0;
+                
+                en_add_new<=0;
+                en_check_ch<=0;
+                en_candy<=0;
+                
+                en_money_after_ch20<=0;
+                en_money_after_ch10<=0;
+                en_money_after_ch5<=0;
+                en_money_after_ch1<=0;
+                
+                servo_20<=0;
+                servo_10<=0;
+                servo_5<=0;
+                servo_1<=0;
+            end
+            BUY: begin
+                m_rst<=0;
+                block_money<=0;
+                flag_reset<=0;
+                flag_wait<=0;
+                flag_coin<=0;
+                if(sel_product!=0) en_payment<=1;
+            
+            end
+            PAYMENT: begin
+                flag_reset<=1; 
+                flag_wait<=0;
+                flag_coin<=0;   
+            end 
+            WAIT_PAYMENT: begin
+                flag_reset<=0;
+                flag_wait<=1;
+                flag_coin<=0;
+                block_money<=1;
+            end   
+//            UPDATE_MONEY_PAYMENT: begin
+//                en_add_new<=1;
+//                flag_wait<=0;
+//                flag_reset<=0;
+//                flag_coin<=0;
+//            end    
+            CHECK_CHANGE: begin
+                en_add_new<=0;
+                en_check_ch<=1;
+                flag_reset<=0;
+                flag_wait<=0;
+                flag_coin<=0;
+                
+                change_left_20<= counter_ch_20;
+                change_left_10<= counter_ch_10;
+                change_left_5<= counter_ch_5;
+                change_left_1<= counter_ch_1;
+                
+                new_left_20<= i_new_20;
+                new_left_10 <= i_new_10;
+                new_left_5<= i_new_5;
+                new_left_1<= i_new_1;
+            end  
+            SEG_REG: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+                
+                if(
+                return_20
+            end  
+//            WAIT_CHECK_CHANGE: begin
+//                flag_wait<=1;
+//                flag_coin<=0; 
+//                flag_reset<=0;
+
+//                en_candy<=1;
+//            end
+            CH_20: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                change_left_20<= change_left_20-1;
+                en_money_after_ch20<=1;
+                servo_20<=1;
+            end    
+             CH_10: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                change_left_10<= change_left_10-1;
+                en_money_after_ch10<=1;
+                servo_10<=1;
+             end
+             CH_5: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                change_left_5<= change_left_5-1;
+                en_money_after_ch5<=1;
+                servo_5<=1;
+             end
+             CH_1: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                change_left_1<= change_left_1-1;
+                en_money_after_ch1<=1;
+                servo_1<=1;
+             end
+            WAIT_COIN: begin
+                flag_coin<=1;
+                flag_reset<=0;
+                flag_wait<=0;
+                en_candy<=1;
+                
+                en_money_after_ch20<=0;
+                en_money_after_ch10<=0;
+                en_money_after_ch5<=0;
+                en_money_after_ch1<=0;
+                if(cnt_coin==COIN_DELAY-1) begin
+                    servo_20<=0;
+                    servo_10<=0;
+                    servo_5<=0;
+                    servo_1<=0; end
+            end    
+//            UPDATE_RETURN_CH: begin
+//                flag_wait<=1;
+//                flag_coin<=0; 
+//                flag_reset<=0;
+
+//            end   
+            WAIT_CANCEL: begin
+                flag_wait<=0;
+                flag_coin<=1;
+                flag_reset<=0;
+                
+                en_money_after_ch20<=0;
+                en_money_after_ch10<=0;
+                en_money_after_ch5<=0;
+                en_money_after_ch1<=0;
+                
+                if(cnt_coin==COIN_DELAY-1) begin
+                servo_20<=0;
+                servo_10<=0;
+                servo_5<=0;
+                servo_1<=0; end
+            end 
+            CANCEL_20: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                servo_20<=1;
+                new_left_20<= new_left_20-1;
+                en_money_after_ch20<=1;
+            end
+            CANCEL_10: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                servo_10<=1;
+                new_left_10<= new_left_10-1;
+                en_money_after_ch10<=1;
+            end
+            CANCEL_5: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                servo_5<=1;
+                new_left_5<= new_left_5-1;
+                en_money_after_ch5<=1;
+            end
+            CANCEL_1: begin
+                flag_coin<=0; 
+                flag_reset<=0;
+                flag_wait<=0;
+
+                servo_1<=1;
+                new_left_1<= new_left_1 -1;
+                en_money_after_ch1<=1;
+            end
+//        default:                
+        endcase
     end
     
-    always@(posedge clk) begin //half a sec posedge
-        if(i_rst) begin
-            counter_1sec<=0;
-            half_sec<=0; end
-        else    
-            if(counter_1sec==COUNTER_1SEC) begin
-                counter_1sec<=0;
-                clk_1hz<=~clk_1hz;
-                half_sec<=1; end //acts like posedge every half a sec
-            else begin
-                counter_1sec <=counter_1sec+1;
-                half_sec<=0; end
-    end
-
 endmodule
