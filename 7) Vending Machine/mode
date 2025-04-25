@@ -12,12 +12,11 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
     input no_payment, //output of 'payment_reciever'
     input no_ch, //output of 'check_change'
     
-    output reg [4:0] change_left_1 ,change_left_5,change_left_10,change_left_20, //input of LCD? if not needed as reg
+    output reg [4:0] return_1 ,return_5,return_10,return_20, //input of LCD_rom.v how much coins of change/cancel are left to give
     output reg en_payment, //input of payment_reciever.v
     output reg en_check_ch, //input of check_change.v
     output reg servo_20, servo_10, servo_5, servo_1,
     output reg  en_money_after_ch20, en_money_after_ch10, en_money_after_ch5, en_money_after_ch1, //input of 'store_money' module. updates money after change is given
-    output reg [4:0] new_left_20, new_left_10, new_left_5, new_left_1,
     output reg en_add_new, //input of 'store_money' module. en to add new_x to total am of money in the machine 
     
     output [4:0] o_vm_state, //transfer the mode to seg_7   
@@ -35,7 +34,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
 //               WAIT_CANCEL=5'd16, UPDATE_MONEY_PAYMENT=5'd17, UPDATE_RETURN_CH=5'd18;
 
     parameter IDLE=5'd0, BUY= 5'd1, PAYMENT= 5'd2, WAIT_PAYMENT= 5'd3, UPDATE_MONEY_PAYMENT= 5'd4, CHECK_CHANGE= 5'd5,
-               WAIT_CHECK_CHANGE= 5'd6, CH_20= 5'd7, CH_10=5'd8, CH_5=5'd9, CH_1=5'd10, 
+               SEG_REG= 5'd6, CH_20= 5'd7, CH_10=5'd8, CH_5=5'd9, CH_1=5'd10, 
                WAIT_COIN=5'd11, UPDATE_RETURN_CH=5'd12, CANCEL_20=5'd13, CANCEL_10=5'd14, CANCEL_5=5'd15,
                CANCEL_1=5'd16, WAIT_CANCEL=5'd17;
     
@@ -112,10 +111,10 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 next_mode= WAIT_COIN;
             WAIT_COIN: 
                 if(cnt_coin==COIN_DELAY)    
-                    if(change_left_20 != 0) next_mode=CH_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
-                    else if(change_left_10 != 0) next_mode=CH_10;
-                    else if(change_left_5 != 0) next_mode=CH_5;
-                    else if(change_left_1 != 0) next_mode=CH_1;
+                    if(return_20 != 0) next_mode=CH_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
+                    else if(return_10 != 0) next_mode=CH_10;
+                    else if(return_5 != 0) next_mode=CH_5;
+                    else if(return_1 != 0) next_mode=CH_1;
                     else next_mode= IDLE; //used to be UPDATE_RETURN_CH
                 else next_mode= WAIT_COIN;
 //            UPDATE_RETURN_CH:  //12
@@ -123,10 +122,10 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
 //                else next_mode=UPDATE_RETURN_CH;
             WAIT_CANCEL: //17
                 if(cnt_coin==COIN_DELAY)    
-                    if(new_left_20 != 0) next_mode=CANCEL_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
-                    else if(new_left_10 != 0) next_mode=CANCEL_10;
-                    else if(new_left_5 != 0) next_mode=CANCEL_5;
-                    else if(new_left_1 != 0) next_mode=CANCEL_1;
+                    if(return_20 != 0) next_mode=CANCEL_20; //wach clock gives a coin of twenty back until no more is needed. note: in 'check_change' module it was calculated how many coins are needed and if there are enough of them.
+                    else if(return_10 != 0) next_mode=CANCEL_10;
+                    else if(return_5 != 0) next_mode=CANCEL_5;
+                    else if(return_1 != 0) next_mode=CANCEL_1;
                     else next_mode= IDLE; //used to be UPDATE_RETURN_CH
                 else next_mode= WAIT_CANCEL;            
 //                if(cnt_wait==COUNT_WAIT) next_mode= CANCEL_20;
@@ -152,15 +151,15 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_coin<=0;
                 block_money<=0;
                 
-                change_left_20<=0;
-                change_left_10<=0;
-                change_left_5<= 0;
-                change_left_1<= 0;
+                return_20<=0;
+                return_10<=0;
+                return_5<= 0;
+                return_1<= 0;
                 
-                new_left_20<=0;
-                new_left_10 <=0;
-                new_left_5<= 0;
-                new_left_1<=0;
+                return_20<=0;
+                return_10 <=0;
+                return_5<= 0;
+                return_1<=0;
                 
                 en_add_new<=0;
                 en_check_ch<=0;
@@ -208,24 +207,22 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_reset<=0;
                 flag_wait<=0;
                 flag_coin<=0;
-                
-                change_left_20<= counter_ch_20;
-                change_left_10<= counter_ch_10;
-                change_left_5<= counter_ch_5;
-                change_left_1<= counter_ch_1;
-                
-                new_left_20<= i_new_20;
-                new_left_10 <= i_new_10;
-                new_left_5<= i_new_5;
-                new_left_1<= i_new_1;
             end  
             SEG_REG: begin
                 flag_coin<=0; 
                 flag_reset<=0;
                 flag_wait<=0;
                 
-                if(
-                return_20
+                if(enough_ch==1) begin
+                    return_20<= counter_ch_20;
+                    return_10<= counter_ch_10;
+                    return_5<= counter_ch_5;
+                    return_1<= counter_ch_1; end
+                else begin //if no_ch==1 or cancel btn==1.
+                    return_20<= i_new_20;
+                    return_10 <= i_new_10;
+                    return_5<= i_new_5;
+                    return_1<= i_new_1; end   
             end  
 //            WAIT_CHECK_CHANGE: begin
 //                flag_wait<=1;
@@ -239,7 +236,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_reset<=0;
                 flag_wait<=0;
 
-                change_left_20<= change_left_20-1;
+                return_20<= return_20-1;
                 en_money_after_ch20<=1;
                 servo_20<=1;
             end    
@@ -248,7 +245,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_reset<=0;
                 flag_wait<=0;
 
-                change_left_10<= change_left_10-1;
+                return_10<= return_10-1;
                 en_money_after_ch10<=1;
                 servo_10<=1;
              end
@@ -257,7 +254,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_reset<=0;
                 flag_wait<=0;
 
-                change_left_5<= change_left_5-1;
+                return_5<= return_5-1;
                 en_money_after_ch5<=1;
                 servo_5<=1;
              end
@@ -266,7 +263,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_reset<=0;
                 flag_wait<=0;
 
-                change_left_1<= change_left_1-1;
+                return_1<= return_1-1;
                 en_money_after_ch1<=1;
                 servo_1<=1;
              end
@@ -314,7 +311,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_wait<=0;
 
                 servo_20<=1;
-                new_left_20<= new_left_20-1;
+                return_20<= return_20-1;
                 en_money_after_ch20<=1;
             end
             CANCEL_10: begin
@@ -323,7 +320,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_wait<=0;
 
                 servo_10<=1;
-                new_left_10<= new_left_10-1;
+                return_10<= return_10-1;
                 en_money_after_ch10<=1;
             end
             CANCEL_5: begin
@@ -332,7 +329,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_wait<=0;
 
                 servo_5<=1;
-                new_left_5<= new_left_5-1;
+                return_5<= return_5-1;
                 en_money_after_ch5<=1;
             end
             CANCEL_1: begin
@@ -341,7 +338,7 @@ module mode #(parameter COUNT_WAIT= 999_999_999*3, //3 sec wait
                 flag_wait<=0;
 
                 servo_1<=1;
-                new_left_1<= new_left_1 -1;
+                return_1<= return_1 -1;
                 en_money_after_ch1<=1;
             end
 //        default:                
